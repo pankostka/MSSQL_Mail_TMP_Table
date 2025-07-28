@@ -37,7 +37,7 @@ Call:
 					EXEC dbo.PanKostkaMailTMPTable 
 						 @TMPTableName  = '#MailSeznamDatabazi'
 						,@order_by = NULL 
-						,@profile_name =''
+						,@profile_name ='' -- List of profiles: EXEC msdb.dbo.sysmail_help_profile_sp
 						,@subject = NULL
 						,@recipients ='pankostka@gmail.com'
 						,@copy_recipients = NULL
