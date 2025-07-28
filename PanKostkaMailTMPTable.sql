@@ -83,7 +83,7 @@ BEGIN
 	end
 
 
-	-- Table rows to vartiable
+	-- Table rows to variable
 	DECLARE @SQLCountStatement VARCHAR(2000)
 	SET @SQLCountStatement = 'SELECT COUNT(*) FROM ' + @TMPTableName
 	DECLARE @SQLCountResult TABLE (countRESULT INT)
@@ -225,7 +225,7 @@ BEGIN
 ''<TR>''+' + substring(@SQLStatement,1,len(@SQLStatement)-1)+ N'+
 ''</TR>''
 FROM ' + (SELECT distinct TMPTableName FROM #TableColumns) + N' t
-ORDER BY ' + ISNULL(@order_by,(SELECT '[' + column_name + '] ASC ' FROM #TableColumns where OrderID = 1 ) )  + '  
+ORDER BY ' + CASE WHEN @order_by is null or @order_by = '' THEN  (SELECT '[' + column_name + '] ASC ' FROM #TableColumns where OrderID = 1 ) ELSE @order_by END + '  
 '  
 	
 	-- print sql statement
