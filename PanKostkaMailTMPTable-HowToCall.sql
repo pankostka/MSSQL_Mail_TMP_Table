@@ -1,6 +1,6 @@
 
 --********** I need TMP TABLE to be send **********
-if 1=1 BEGIN 
+IF 1=1 BEGIN 
 
 	DROP TABLE IF EXISTS #PanKostkaTestTMPTable -- table name must be unique. If another TMP tables (in different session) with same name exists, procedure will return error
 	SELECT 	
@@ -8,21 +8,21 @@ if 1=1 BEGIN
 		,CONVERT(date, GETDATE()) as ValueDate
 		,CONVERT(datetime, GETDATE()) as ValueDateTime
 		,CONVERT(varchar(200), 'TestTestTest') as ValueVarchar
-		,CONVERT(varchar(200), 'Èùrala paninka v údolí') as ValueNVarchar
+		,CONVERT(nvarchar(200), N'ÄŒÅ¯rala paninka v ÃºdolÃ­') as ValueNVarchar
 	INTO #PanKostkaTestTMPTable
 	select * from #PanKostkaTestTMPTable --just to see table
 
-END
+END --END Konec I need TMP TABLE to be send
 
 --********** Another TMP table **********
-if 1=0 BEGIN 
+IF 1=0 BEGIN 
 
 	DROP TABLE IF EXISTS #PanKostkaDatabasesList
 	SELECT 	
-		 D.name AS [Jméno databáze]
+		 D.name AS [JmÃ©no databÃ¡ze]
 		,round(sum((F.size * 8) / 1024) / 1024.0, 1) AS [Velikost GB]
-		,min(d.create_date) AS [Vytvoøena]
-		,datediff(day, min(d.create_date), getdate()) AS [Stáøí dny]
+		,min(d.create_date) AS [VytvoÅ™ena]
+		,datediff(day, min(d.create_date), getdate()) AS [StÃ¡Å™Ã­ dny]
 		,min(f.state_desc) AS [State]	
 	into #PanKostkaDatabasesList
 	FROM sys.master_files f
@@ -32,14 +32,14 @@ if 1=0 BEGIN
 	GROUP BY D.name
 	select * from #PanKostkaDatabasesList --just to see table
 
-END
+END --END Konec Another TMP table
 
 
 --********** Send table **********
-if 1=1 BEGIN 
+IF 1=1 BEGIN 
 
 	declare @MyProfileName nvarchar(200)
-	set @MyProfileName  = (select name from msdb.dbo.sysmail_profile p) -- EXEC msdb.dbo.sysmail_help_profile_sp
+	set @MyProfileName  = (select TOP 1 name from msdb.dbo.sysmail_profile p ORDER BY profile_id) -- EXEC msdb.dbo.sysmail_help_profile_sp
 
 	declare @MySubject varchar(255) -- better not nvarchar?
 	SET @MySubject = 'Mail by PanKostkaMailTMPTable. Number of rows: ' + (select convert(varchar(10),COUNT(*)) from #PanKostkaTestTMPTable)
@@ -54,15 +54,15 @@ if 1=1 BEGIN
 		,@copy_recipients = NULL
 		,@from_address = NULL
 		,@reply_to = 'pankostka@gmail.com'
-		,@prefix  = '<p>Some html formatiing<p>
+		,@prefix  = '<p>Some html formatting<p>
 <p>Link: <A  href="https://pankostka.cz/">pankostka.cz</a></p>
 <p>&nbsp</p>'
 		,@sufix = '<p>&nbsp</p>
 <p>&nbsp</p>
 <p><b>PanKostka.cz</b></p>
-<a href="mailto:pankostka@gmail.cz">pankostka@gmail.com</a>
+<a href="mailto:pankostka@gmail.com">pankostka@gmail.com</a>
 <p>&nbsp</p>
-<p>Myil by procedure <i>PanKostkaMailTMPTable</i></p>' 
+<p>Mailed by procedure <i>PanKostkaMailTMPTable</i></p>' 
 		,@PrintOnly = 'N'
 
-END 
+END --END Konec Send table

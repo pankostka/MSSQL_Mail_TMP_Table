@@ -61,7 +61,7 @@ For debuging:
 -- Metadata about table FROM tempdb.sys.tables, tempdb.sys.columns, tempdb.sys.types -> #TableColumns
 -- SELECT * FROM #TableColumns
 -- Check: Table exists? Found only one table? Table has more then one row (no rows ->nothing to send)? Table has more then 1000 rows? -> error
-BEGIN
+IF 1=1 BEGIN
 		
 	-- Table must exists
 	IF (SELECT count(*) FROM tempdb.sys.tables WHERE name LIKE @TMPTableName + '%') = 0
@@ -126,7 +126,7 @@ END -- END TABLE COLUMNS INTO TMP
 
 --********** HTML HEADER AND FOOTER **********
 -- -> @HTMLHead,HTMLFooter
-BEGIN
+IF 1=1 BEGIN
 	
 	DECLARE @HTMLHead Nvarchar(max) = ''
 	SET @HTMLHead = 
@@ -177,7 +177,7 @@ END --END HTML HEADER AND FOOTER
 
 --********** HTML BODY  **********
 -- ->@HTMLBody
-BEGIN
+IF 1=1 BEGIN
 	
 	-- HTML table declaration
 	DECLARE @HTMLBody Nvarchar(max)	
@@ -267,7 +267,7 @@ END --END  HTML BODY
 
 --********** MAIL SUBJECT **********
 -- If mail subject is NULL then table name + actual datetime. If Not subject + actual datetime.
-BEGIN
+IF 1=1 BEGIN
 	if ISNULL(@subject,'') = ''
 		SET @subject = '' + @TMPTableName + '   (' + format(getdate(),'yyyy-MM-dd HH:mm') + ')'
 	ELSE 
@@ -278,7 +278,7 @@ END -- END MAIL SUBJECT
 
 --********** MAIL SEND **********
 -- Send mail using msdb.dbo.sp_send_dbmail
-BEGIN
+IF 1=1 BEGIN
 
 	if ISNULL(@PrintOnly,'N') = 'N' 
 	EXEC msdb.dbo.sp_send_dbmail
