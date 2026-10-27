@@ -33,6 +33,7 @@ Watch out for:		User must have permissions to send mail (sp_send_dbmail). https:
 					TMP Table name must be unique! For table name #Test - if exists another #Test or #Test1 on SQL server, procedure will return error.
 Changes:
 					2023-06-18 Published on https://pankostka.cz/
+					2026-10-27 SQL injection protection: QUOTENAME for table and column names, @order_by checked against table columns, columns in table order (column_id)
 Call:				
 					EXEC dbo.PanKostkaMailTMPTable 
 						 @TMPTableName  = '#MailSeznamDatabazi'
@@ -62,7 +63,14 @@ For debuging:
 -- SELECT * FROM #TableColumns
 -- Check: Table exists? Found only one table? Table has more then one row (no rows ->nothing to send)? Table has more then 1000 rows? -> error
 IF 1=1 BEGIN
-		
+
+	-- Table name must fit into QUOTENAME (max 128 chars), otherwise dynamic SQL would be NULL
+	IF QUOTENAME(@TMPTableName) IS NULL
+	BEGIN
+		RAISERROR ('Parameter @TMPTableName is NULL or longer than 128 characters.',18,1)
+		RETURN
+	END
+
 	-- Table must exists
 	IF (SELECT count(*) FROM tempdb.sys.tables WHERE name LIKE @TMPTableName + '%') = 0
 	BEGIN
@@ -84,8 +92,8 @@ IF 1=1 BEGIN
 
 
 	-- Table rows to variable
-	DECLARE @SQLCountStatement VARCHAR(2000)
-	SET @SQLCountStatement = 'SELECT COUNT(*) FROM ' + @TMPTableName
+	DECLARE @SQLCountStatement NVARCHAR(2000)
+	SET @SQLCountStatement = N'SELECT COUNT(*) FROM ' + QUOTENAME(@TMPTableName)
 	DECLARE @SQLCountResult TABLE (countRESULT INT)
 	INSERT @SQLCountResult
 	EXEC (@SQLCountStatement)
@@ -110,7 +118,7 @@ IF 1=1 BEGIN
 	IF EXISTS #TableColumns
 	SELECT @TMPTableName AS TMPTableName
 		--,tab.name as table_name
-		,ROW_NUMBER() OVER (ORDER BY tab.name ASC) AS OrderID
+		,ROW_NUMBER() OVER (ORDER BY col.column_id ASC) AS OrderID
 		,col.name AS column_name
 		,t.name AS data_type
 	INTO #TableColumns
@@ -123,6 +131,54 @@ IF 1=1 BEGIN
 	-- SELECT * FROM #TableColumns
 
 END -- END TABLE COLUMNS INTO TMP
+
+--********** ORDER BY **********
+-- @order_by is free text from caller. Every item is checked against #TableColumns and rebuilt with QUOTENAME -> @OrderBySafe (protection against SQL injection).
+-- Item format: Column [ASC|DESC], column may be in [brackets]. Unknown column -> error. Empty @order_by -> first column ASC.
+IF 1=1 BEGIN
+
+	DECLARE @OrderBySafe nvarchar(max) = N''
+	DECLARE @OrderByRest nvarchar(max) = ISNULL(@order_by, N'') + N','
+	DECLARE @OrderByItem nvarchar(400)
+	DECLARE @OrderByColumn nvarchar(400)
+	DECLARE @OrderByDirection nvarchar(4)
+
+	WHILE CHARINDEX(N',', @OrderByRest) > 0
+	BEGIN
+		SET @OrderByItem = LTRIM(RTRIM(LEFT(@OrderByRest, CHARINDEX(N',', @OrderByRest) - 1)))
+		SET @OrderByRest = STUFF(@OrderByRest, 1, CHARINDEX(N',', @OrderByRest), N'')
+
+		IF @OrderByItem <> N''
+		BEGIN
+			-- Direction at the end of item
+			IF UPPER(RIGHT(@OrderByItem, 5)) = N' DESC'
+				SELECT @OrderByDirection = N'DESC', @OrderByColumn = LEFT(@OrderByItem, LEN(@OrderByItem) - 5)
+			ELSE IF UPPER(RIGHT(@OrderByItem, 4)) = N' ASC'
+				SELECT @OrderByDirection = N'ASC', @OrderByColumn = LEFT(@OrderByItem, LEN(@OrderByItem) - 4)
+			ELSE
+				SELECT @OrderByDirection = N'ASC', @OrderByColumn = @OrderByItem
+
+			SET @OrderByColumn = LTRIM(RTRIM(@OrderByColumn))
+			IF LEFT(@OrderByColumn, 1) = N'[' AND RIGHT(@OrderByColumn, 1) = N']'
+				SET @OrderByColumn = SUBSTRING(@OrderByColumn, 2, LEN(@OrderByColumn) - 2)
+
+			-- Only existing column can be used
+			IF NOT EXISTS (SELECT 1 FROM #TableColumns WHERE column_name = @OrderByColumn)
+			BEGIN
+				RAISERROR ('Column %s from @order_by does not exist in table.',18,1, @OrderByColumn)
+				RETURN
+			END
+
+			SET @OrderBySafe = @OrderBySafe + CASE WHEN @OrderBySafe = N'' THEN N'' ELSE N', ' END + QUOTENAME(@OrderByColumn) + N' ' + @OrderByDirection
+		END
+	END
+
+	-- Default: first column ASC
+	IF @OrderBySafe = N''
+		SET @OrderBySafe = (SELECT QUOTENAME(column_name) + N' ASC' FROM #TableColumns WHERE OrderID = 1)
+	--print @OrderBySafe
+
+END --END ORDER BY
 
 --********** HTML HEADER AND FOOTER **********
 -- -> @HTMLHead,HTMLFooter
@@ -187,7 +243,7 @@ IF 1=1 BEGIN
 	
 	-- HTML table header
 	SET @HTMLBody = @HTMLBody +  
-	(SELECT STRING_AGG(column_name, N'</th><th>') 
+	(SELECT STRING_AGG(column_name, N'</th><th>') WITHIN GROUP (ORDER BY OrderID)
 	-- SELECT * 
 	FROM #TableColumns
 	)
@@ -204,13 +260,13 @@ IF 1=1 BEGIN
 		(SELECT 
 			-- select distinct name from tempdb.sys.types order by 1
 			CASE WHEN t.data_type like 'date%' THEN -- all dates fonvert format
-					N'''<td>''' + ' + ISNULL(format(t.[' + t.column_name + '],''yyyy-MM-dd HH:mm''),''&nbsp'') + ''</td>''+ '
+					N'''<td>''' + ' + ISNULL(format(t.' + QUOTENAME(t.column_name) + ',''yyyy-MM-dd HH:mm''),''&nbsp'') + ''</td>''+ '
 				WHEN t.data_type in ('decimal','float','money','numeric','bigint', 'bit','int','smallint') THEN -- numbers to the right
-					N'''<td align ="right">''' + ' + ISNULL(convert(varchar(2000),t.[' + t.column_name + ']),''&nbsp'') + ''</td>''+ '
+					N'''<td align ="right">''' + ' + ISNULL(convert(varchar(2000),t.' + QUOTENAME(t.column_name) + '),''&nbsp'') + ''</td>''+ '
 				WHEN t.data_type in ('varchar','nvarchar','text','ntext','char') THEN --add collation 
-					N'''<td align ="left">''' + ' + ISNULL(convert(varchar(2000),t.[' + t.column_name +  '] collate ' + convert(varchar(200),SERVERPROPERTY(N'Collation')) + '),''&nbsp'') + ''</td>''+ '
+					N'''<td align ="left">''' + ' + ISNULL(convert(varchar(2000),t.' + QUOTENAME(t.column_name) + ' collate ' + convert(varchar(200),SERVERPROPERTY(N'Collation')) + '),''&nbsp'') + ''</td>''+ '
 				ELSE	
-					N'''<td>''' + ' + ISNULL(convert(varchar(2000),t.[' + t.column_name + ']),''&nbsp'') + ''</td>''+ '
+					N'''<td>''' + ' + ISNULL(convert(varchar(2000),t.' + QUOTENAME(t.column_name) + '),''&nbsp'') + ''</td>''+ '
 			END
 		-- SELECT top 100 * 
 		FROM #TableColumns t  
@@ -224,8 +280,8 @@ IF 1=1 BEGIN
 	SET @SQLStatement = N'SELECT 
 ''<TR>''+' + substring(@SQLStatement,1,len(@SQLStatement)-1)+ N'+
 ''</TR>''
-FROM ' + (SELECT distinct TMPTableName FROM #TableColumns) + N' t
-ORDER BY ' + CASE WHEN @order_by is null or @order_by = '' THEN  (SELECT '[' + column_name + '] ASC ' FROM #TableColumns where OrderID = 1 ) ELSE @order_by END + '  
+FROM ' + QUOTENAME(@TMPTableName) + N' t
+ORDER BY ' + @OrderBySafe + '
 '  
 	
 	-- print sql statement
@@ -236,14 +292,15 @@ ORDER BY ' + CASE WHEN @order_by is null or @order_by = '' THEN  (SELECT '[' + c
 	END
 
 
-	DECLARE @SQLResult TABLE (SQLResult varchar(max))
-	INSERT @SQLResult
+	-- RowID keeps ORDER BY from @SQLStatement for STRING_AGG below
+	DECLARE @SQLResult TABLE (RowID int IDENTITY(1,1), SQLResult varchar(max))
+	INSERT @SQLResult (SQLResult)
 	EXEC (@SQLStatement)
 
 	SET @HTMLBody = @HTMLBody + 
 	(SELECT STRING_AGG(SQLResult, '
-') 
-	-- SELECT * 
+') WITHIN GROUP (ORDER BY RowID)
+	-- SELECT *
 	FROM @SQLResult
 	)
 
