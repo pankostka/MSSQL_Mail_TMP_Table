@@ -4,7 +4,7 @@ SET QUOTED_IDENTIFIER ON
 GO
 
 CREATE OR ALTER PROCEDURE dbo.PanKostkaMailTMPTable (
-	 @TMPTableName Nvarchar(200) NULL -- string with TMP table name. Could be #Local or ##Global. Could not be normal table/view (IMHO TMP table is better). Table name must be unique on SQL server!! 
+	 @TMPTableName Nvarchar(200) NULL -- string with TMP table name. Could be #Local or ##Global. Could not be normal table/view (IMHO TMP table is better).
 	,@order_by Nvarchar(200) NULL -- How to sort table. Example: 'Column1 ASC, Column3 Desc'. null -> sort by first column ASC 
 	,@profile_name varchar(2000) --  List of profiles: EXEC msdb.dbo.sysmail_help_profile_sp (column Name)
 	,@subject varchar(2000) = NULL -- Mail subject. if no subject -> table name and actual date
@@ -29,11 +29,11 @@ Description:        Mail TMP table to users.
 Used for:           Reporting data FROM ERP.
 Watch out for:		User must have permissions to send mail (sp_send_dbmail). https://www.mssqltips.com/sqlservertip/1100/SETting-up-database-mail-for-sql-server/
 						Test: EXEC msdb.dbo.sp_send_dbmail @profile_name = 'PROFILE_NAME',@recipients = 'pankostka@gmail.com',@body = 'TEXT MAIL',@subject = 'TEST MAIL',@body_format = 'HTML'
-						List of profiles: EXEC msdb.dbo.sysmail_help_profile_sp -- Column Name					
-					TMP Table name must be unique! For table name #Test - if exists another #Test or #Test1 on SQL server, procedure will return error.
+						List of profiles: EXEC msdb.dbo.sysmail_help_profile_sp -- Column Name
 Changes:
 					2023-06-18 Published on https://pankostka.cz/
 					2026-10-27 SQL injection protection: QUOTENAME for table and column names, @order_by checked against table columns, columns in table order (column_id)
+					2026-10-27 TMP table found by OBJECT_ID - table name does not have to be unique on SQL server
 Call:				
 					EXEC dbo.PanKostkaMailTMPTable 
 						 @TMPTableName  = '#MailSeznamDatabazi'
@@ -59,9 +59,9 @@ For debuging:
 --***************************************************************************************************/
 
 --********** TABLE COLUMNS INTO TMP **********
--- Metadata about table FROM tempdb.sys.tables, tempdb.sys.columns, tempdb.sys.types -> #TableColumns
+-- Metadata about table FROM tempdb.sys.columns, tempdb.sys.types -> #TableColumns
 -- SELECT * FROM #TableColumns
--- Check: Table exists? Found only one table? Table has more then one row (no rows ->nothing to send)? Table has more then 1000 rows? -> error
+-- Check: Table is TMP? Table exists? Table has more then one row (no rows ->nothing to send)? Table has more then 1000 rows? -> error
 IF 1=1 BEGIN
 
 	-- Table name must fit into QUOTENAME (max 128 chars), otherwise dynamic SQL would be NULL
@@ -71,24 +71,20 @@ IF 1=1 BEGIN
 		RETURN
 	END
 
-	-- Table must exists
-	IF (SELECT count(*) FROM tempdb.sys.tables WHERE name LIKE @TMPTableName + '%') = 0
+	-- Only TMP table (#Local or ##Global)
+	IF LEFT(@TMPTableName, 1) <> N'#'
 	BEGIN
-		DECLARE @ErrorNoTable VARCHAR(2000)
-		SET @ErrorNoTable = 'Table ' + @TMPTableName + ' does not exists.'
-		RAISERROR (@ErrorNoTable,18,1)
+		RAISERROR ('Table %s is not TMP table. Name must start with # or ##.',18,1, @TMPTableName)
 		RETURN
 	END
 
-	
-	-- Table must be only one
-	if ( SELECT count(*) FROM tempdb.sys.tables WHERE name like @TMPTableName + '%' ) > 1
-	begin
-		DECLARE @ErrorMoreTables varchar (2000)
-		SET @ErrorMoreTables = (SELECT 'There are more tables with the name ' + @TMPTableName + '. Found ' + convert(varchar(10),count(*))  FROM tempdb.sys.tables WHERE name like @TMPTableName + '%')
-		RAISERROR(@ErrorMoreTables, 18, 1)
-		return  
-	end
+	-- Table must exists. OBJECT_ID finds #Local table of this session (tables with the same name in other sessions are ignored) or ##Global table.
+	DECLARE @TMPTableObjectID int = OBJECT_ID(N'tempdb..' + QUOTENAME(@TMPTableName), N'U')
+	IF @TMPTableObjectID IS NULL
+	BEGIN
+		RAISERROR ('Table %s does not exists.',18,1, @TMPTableName)
+		RETURN
+	END
 
 
 	-- Table rows to variable
@@ -123,11 +119,9 @@ IF 1=1 BEGIN
 		,t.name AS data_type
 	INTO #TableColumns
 	-- SELECT top 100 * 
-	FROM tempdb.sys.tables AS tab
-	JOIN tempdb.sys.columns AS col ON tab.object_id = col.object_id
+	FROM tempdb.sys.columns AS col
 	LEFT JOIN tempdb.sys.types AS t ON col.user_type_id = t.user_type_id
-	WHERE 1 = 1
-	AND tab.name LIKE @TMPTableName + '%'
+	WHERE col.object_id = @TMPTableObjectID
 	-- SELECT * FROM #TableColumns
 
 END -- END TABLE COLUMNS INTO TMP

@@ -2,7 +2,7 @@
 --********** I need TMP TABLE to be send **********
 IF 1=1 BEGIN 
 
-	DROP TABLE IF EXISTS #PanKostkaTestTMPTable -- table name must be unique. If another TMP tables (in different session) with same name exists, procedure will return error
+	DROP TABLE IF EXISTS #PanKostkaTestTMPTable
 	SELECT 	
 		 CONVERT(int, 1) as ValueINT
 		,CONVERT(date, GETDATE()) as ValueDate
